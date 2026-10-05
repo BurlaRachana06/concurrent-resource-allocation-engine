@@ -1,4 +1,4 @@
-from app.allocator import AllocationEngine
+﻿from app.allocator import AllocationEngine
 from app.models import Resource, ResourceType
 
 
@@ -87,8 +87,6 @@ def test_atomic_allocation_fails_if_one_resource_unavailable():
         for resource in engine.get_resources()
     }
 
-    # ICU-01 must remain available because
-    # the complete allocation failed atomically.
     assert resources["ICU-01"].available is True
 
 
@@ -108,3 +106,67 @@ def test_release_resource():
     )
 
     assert result["status"] == "ALLOCATED"
+
+
+def test_rejects_duplicate_resource_ids():
+    engine = create_engine()
+
+    result = engine.allocate(
+        "REQ-DUPLICATE",
+        ["ICU-01", "ICU-01"],
+    )
+
+    assert result["status"] == "FAILED"
+    assert result["allocated_resources"] == []
+    assert result["message"] == "Duplicate resource IDs are not allowed"
+
+    resources = {
+        resource.resource_id: resource
+        for resource in engine.get_resources()
+    }
+
+    assert resources["ICU-01"].available is True
+
+
+def test_same_request_id_does_not_allocate_twice():
+    engine = create_engine()
+
+    first = engine.allocate(
+        "REQ-IDEMPOTENT",
+        ["ICU-01"],
+    )
+
+    second = engine.allocate(
+        "REQ-IDEMPOTENT",
+        ["ICU-01"],
+    )
+
+    assert first["status"] == "ALLOCATED"
+    assert first["allocated_resources"] == ["ICU-01"]
+
+    assert second["status"] == "ALLOCATED"
+    assert second["allocated_resources"] == ["ICU-01"]
+
+    assert (
+        second["message"]
+        == "Request already processed. "
+        "Returning previous allocation result."
+    )
+def test_get_resources_does_not_expose_internal_state():
+    engine = create_engine()
+
+    resources = engine.get_resources()
+
+    resources_by_id = {
+        resource.resource_id: resource
+        for resource in resources
+    }
+
+    resources_by_id["ICU-01"].available = False
+
+    actual_resources = {
+        resource.resource_id: resource
+        for resource in engine.get_resources()
+    }
+
+    assert actual_resources["ICU-01"].available is True
